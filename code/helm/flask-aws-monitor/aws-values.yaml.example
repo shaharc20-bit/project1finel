@@ -1,0 +1,3 @@
+aws:
+  accessKeyId: "<your-access-key-id>"
+  secretAccessKey: "<your-secret-access-key>"

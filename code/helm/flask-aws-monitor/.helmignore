@@ -1,0 +1,6 @@
+.DS_Store
+.git/
+*.swp
+*.tmp
+aws-values.yaml
+aws-values.yaml.example

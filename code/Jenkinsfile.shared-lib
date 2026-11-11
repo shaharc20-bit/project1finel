@@ -1,0 +1,65 @@
+@Library('my-shared-library') _
+
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+    }
+
+    environment {
+        APP_DIR    = 'code/app'
+        IMAGE_NAME = "${env.DOCKERHUB_USER}/flask-aws-monitor"
+        IMAGE_TAG  = "${BUILD_NUMBER}"
+    }
+
+    stages {
+        stage('Clone Repository') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Parallel Checks') {
+            parallel {
+                stage('flake8') {
+                    steps { script { codeQuality.flake8(env.APP_DIR) } }
+                }
+                stage('hadolint') {
+                    steps { script { codeQuality.hadolint("${env.APP_DIR}/Dockerfile") } }
+                }
+                stage('shellcheck') {
+                    steps { script { codeQuality.shellcheck('.') } }
+                }
+                stage('bandit') {
+                    steps { script { securityScan.bandit(env.APP_DIR) } }
+                }
+                stage('trivy fs') {
+                    steps { script { securityScan.trivyFs('.') } }
+                }
+                stage('unit tests') {
+                    steps { script { unitTest(env.APP_DIR) } }
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps { script { imageBuild.build(env.IMAGE_NAME, env.IMAGE_TAG, env.APP_DIR) } }
+        }
+
+        stage('Scan Image') {
+            steps { script { securityScan.trivyImage("${env.IMAGE_NAME}:${env.IMAGE_TAG}") } }
+        }
+
+        stage('Push to Docker Hub') {
+            steps { script { imageBuild.push(env.IMAGE_NAME, env.IMAGE_TAG) } }
+        }
+    }
+
+    post {
+        always {
+            script { imageBuild.cleanup(env.IMAGE_NAME, env.IMAGE_TAG) }
+            deleteDir()
+        }
+    }
+}

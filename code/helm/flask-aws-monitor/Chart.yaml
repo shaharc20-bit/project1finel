@@ -1,0 +1,6 @@
+apiVersion: v2
+name: flask-aws-monitor
+description: Flask app that lists EC2 instances, VPCs, Load Balancers and AMIs
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

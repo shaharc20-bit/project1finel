@@ -1,0 +1,21 @@
+replicaCount: 2
+
+image:
+  repository: shaharc20/flask-aws-monitor
+  tag: "latest"
+  pullPolicy: Always
+
+service:
+  type: ClusterIP
+  port: 5001
+
+aws:
+  existingSecret: aws-credentials
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
