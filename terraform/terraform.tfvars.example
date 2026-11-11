@@ -1,0 +1,5 @@
+allowed_cidrs   = ["<your-home-ip>/32"]
+github_username = "<github-user>"
+github_token    = "<github-token-with-repo-scope>"
+dockerhub_token = "<docker-hub-access-token>"
+admin_password  = "<password-for-jenkins-and-argocd>"

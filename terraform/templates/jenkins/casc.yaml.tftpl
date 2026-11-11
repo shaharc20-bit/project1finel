@@ -1,0 +1,65 @@
+jenkins:
+  systemMessage: "flask-aws-monitor CI - configured as code (JCasC)"
+  numExecutors: 2
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "$${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+  globalNodeProperties:
+    - envVars:
+        env:
+          - key: "DOCKERHUB_USER"
+            value: "$${DOCKERHUB_USER}"
+          - key: "GITOPS_REPO"
+            value: "${repo_url}"
+          - key: "GITOPS_BRANCH"
+            value: "${repo_branch}"
+          - key: "GITOPS_PATH"
+            value: "gitops"
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - usernamePassword:
+              scope: GLOBAL
+              id: "dockerhub-creds"
+              username: "$${DOCKERHUB_USER}"
+              password: "$${DOCKERHUB_TOKEN}"
+              description: "Docker Hub"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "github-creds"
+              username: "$${GITHUB_USER}"
+              password: "$${GITHUB_TOKEN}"
+              description: "GitHub"
+
+unclassified:
+  location:
+    url: "$${JENKINS_URL}"
+
+jobs:
+  - script: |
+      pipelineJob('flask-aws-monitor') {
+        description('CI: checks, build, push image, render Helm and update the GitOps repo')
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('${repo_url}')
+                  credentials('github-creds')
+                }
+                branches('*/${repo_branch}')
+              }
+            }
+            scriptPath('code/Jenkinsfile')
+            lightweight(true)
+          }
+        }
+      }

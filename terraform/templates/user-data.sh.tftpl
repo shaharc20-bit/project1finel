@@ -1,0 +1,160 @@
+#!/bin/bash
+set -euo pipefail
+mkdir -p /var/lib/devops-bootstrap
+exec > >(tee -a /var/log/devops-bootstrap.log) 2>&1
+trap 'echo "BOOTSTRAP FAILED at line $LINENO"; touch /var/lib/devops-bootstrap/failed' ERR
+
+export HOME=/root
+export DEBIAN_FRONTEND=noninteractive
+REGION="${region}"
+PARAM_PREFIX="${param_prefix}"
+REPO_URL="${repo_url}"
+REPO_BRANCH="${repo_branch}"
+BACKUP_BUCKET="${backup_bucket}"
+TRIGGER_FIRST_BUILD="${trigger_first_build}"
+
+step() { echo; echo "===== $(date +%T) $* ====="; }
+
+step "1/8 Base packages"
+apt-get update -y
+apt-get install -y ca-certificates curl git jq apache2-utils
+
+TOKEN=$(curl -sX PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+PUBLIC_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/public-ipv4)
+
+step "2/8 Docker + Docker Compose"
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
+apt-get update -y
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+systemctl enable --now docker
+usermod -aG docker ubuntu
+docker --version
+docker compose version
+
+step "3/8 AWS CLI + secrets from SSM Parameter Store"
+snap wait system seed.loaded
+snap install aws-cli --classic
+export PATH="$PATH:/snap/bin"
+ssm() { aws ssm get-parameter --region "$REGION" --with-decryption --name "$PARAM_PREFIX/$1" --query Parameter.Value --output text; }
+DOCKERHUB_USER=$(ssm dockerhub_username)
+DOCKERHUB_TOKEN=$(ssm dockerhub_token)
+ADMIN_PASSWORD=$(ssm admin_password)
+GITHUB_USER=$(ssm github_username)
+GITHUB_TOKEN=$(ssm github_token)
+
+step "4/8 Jenkins (JCasC: admin user, Docker Hub credentials, pipeline job)"
+mkdir -p /opt/jenkins
+cat > /opt/jenkins/Dockerfile <<'JENKINS_DOCKERFILE'
+${jenkins_dockerfile}
+JENKINS_DOCKERFILE
+cat > /opt/jenkins/plugins.txt <<'JENKINS_PLUGINS'
+${jenkins_plugins}
+JENKINS_PLUGINS
+cat > /opt/jenkins/docker-compose.yml <<'JENKINS_COMPOSE'
+${jenkins_compose}
+JENKINS_COMPOSE
+cat > /opt/jenkins/casc.yaml <<'JENKINS_CASC'
+${jenkins_casc}
+JENKINS_CASC
+cat > /opt/jenkins/.env <<JENKINS_ENV
+JENKINS_ADMIN_PASSWORD=$ADMIN_PASSWORD
+DOCKERHUB_USER=$DOCKERHUB_USER
+DOCKERHUB_TOKEN=$DOCKERHUB_TOKEN
+GITHUB_USER=$GITHUB_USER
+GITHUB_TOKEN=$GITHUB_TOKEN
+JENKINS_URL=http://$PUBLIC_IP:8080/
+JENKINS_ENV
+chmod 600 /opt/jenkins/.env
+mkdir -p /var/jenkins_home
+chown 1000:1000 /var/jenkins_home
+cd /opt/jenkins
+DOCKER_GID=$(getent group docker | cut -d: -f3) docker compose up -d --build
+for _ in $(seq 1 60); do
+  if [ "$(curl -s -o /dev/null -w '%%{http_code}' http://localhost:8080/login || true)" = "200" ]; then
+    echo "Jenkins is up"
+    break
+  fi
+  sleep 10
+done
+docker exec jenkins ls /var/jenkins_home/jobs
+
+step "5/8 Kubernetes (k3s) + Helm"
+curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode 644" sh -
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+mkdir -p /home/ubuntu/.kube
+cp /etc/rancher/k3s/k3s.yaml /home/ubuntu/.kube/config
+chown -R ubuntu:ubuntu /home/ubuntu/.kube
+chmod 600 /home/ubuntu/.kube/config
+curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+until kubectl get nodes 2> /dev/null | grep -q " Ready"; do sleep 5; done
+kubectl get nodes -o wide
+helm version
+
+step "6/8 Argo CD"
+kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -n argocd --server-side --force-conflicts \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+for d in argocd-server argocd-repo-server argocd-applicationset-controller; do
+  kubectl -n argocd rollout status "deploy/$d" --timeout=600s
+done
+kubectl -n argocd patch svc argocd-server --type merge -p \
+  '{"spec":{"type":"NodePort","ports":[{"name":"http","port":80,"protocol":"TCP","targetPort":8080,"nodePort":30080},{"name":"https","port":443,"protocol":"TCP","targetPort":8080,"nodePort":30443}]}}'
+# shellcheck disable=SC2016
+ARGO_HASH=$(htpasswd -nbBC 10 "" "$ADMIN_PASSWORD" | tr -d ':\n' | sed 's/^\$2y/$2a/')
+kubectl -n argocd patch secret argocd-secret -p \
+  "{\"stringData\":{\"admin.password\":\"$ARGO_HASH\",\"admin.passwordMtime\":\"$(date +%FT%T%Z)\"}}"
+
+step "7/8 GitOps: repo credentials + root Application -> ApplicationSets"
+kubectl -n argocd create secret generic gitops-repo \
+  --from-literal=type=git --from-literal=url="$REPO_URL" \
+  --from-literal=username="$GITHUB_USER" --from-literal=password="$GITHUB_TOKEN" \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n argocd label secret gitops-repo argocd.argoproj.io/secret-type=repository --overwrite
+cat <<ROOT_APP | kubectl apply -f -
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: $REPO_URL
+    targetRevision: $REPO_BRANCH
+    path: gitops/applicationsets
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+ROOT_APP
+for _ in $(seq 1 30); do
+  [ "$(kubectl get applications -n argocd --no-headers 2> /dev/null | wc -l)" -gt 1 ] && break
+  sleep 10
+done
+kubectl get applications -n argocd
+
+step "8/8 Jenkins backup to S3 + first pipeline run"
+cat > /usr/local/bin/backup-jenkins.sh <<'BACKUP_SCRIPT'
+${backup_script}
+BACKUP_SCRIPT
+chmod 0755 /usr/local/bin/backup-jenkins.sh
+if [ -n "$BACKUP_BUCKET" ]; then
+  echo "0 2 * * * root BUCKET=$BACKUP_BUCKET AWS_REGION=$REGION /usr/local/bin/backup-jenkins.sh >> /var/log/jenkins-backup.log 2>&1" > /etc/cron.d/jenkins-backup
+  BUCKET="$BACKUP_BUCKET" AWS_REGION="$REGION" /usr/local/bin/backup-jenkins.sh || echo "WARN: first backup failed"
+fi
+if [ "$TRIGGER_FIRST_BUILD" = "true" ]; then
+  docker exec jenkins sh -c 'curl -sf -o /tmp/jenkins-cli.jar http://localhost:8080/jnlpJars/jenkins-cli.jar && java -jar /tmp/jenkins-cli.jar -s http://localhost:8080/ -auth "admin:$JENKINS_ADMIN_PASSWORD" build flask-aws-monitor' \
+    && echo "Pipeline flask-aws-monitor started" || echo "WARN: could not start the first build"
+fi
+
+touch /var/lib/devops-bootstrap/done
+step "Done"
+echo "App (prd):  http://$PUBLIC_IP:5001  |  http://$PUBLIC_IP/"
+echo "Jenkins:    http://$PUBLIC_IP:8080   (admin)"
+echo "Argo CD:    https://$PUBLIC_IP:30443 (admin)"
