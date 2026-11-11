@@ -1,5 +1,0 @@
-bucket         = "<created by remote-state/>"
-key            = "devops-platform/terraform.tfstate"
-region         = "eu-north-1"
-dynamodb_table = "devops-platform-tf-locks"
-encrypt        = true
