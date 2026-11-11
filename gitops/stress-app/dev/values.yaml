@@ -1,0 +1,4 @@
+replicaCount: 1
+stress:
+  cpuWorkers: 1
+  cpuLoad: 5

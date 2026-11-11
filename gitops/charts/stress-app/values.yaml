@@ -1,0 +1,26 @@
+replicaCount: 1
+
+image:
+  repository: polinux/stress-ng
+  tag: latest
+  pullPolicy: IfNotPresent
+
+stress:
+  cpuWorkers: 1
+  cpuLoad: 5
+  vmWorkers: 0
+  vmBytes: 64M
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 60
