@@ -65,7 +65,7 @@ def home():
     <html>
     <head><title>AWS Resources</title></head>
     <body>
-        <h1>Running EC2 Instances</h1>
+     <h1>Shahar's AWS Monitor</h1>
         <table border='1'>
             <tr><th>ID</th><th>State</th><th>Type</th><th>Public IP</th></tr>
             {% for instance in instance_data %}
