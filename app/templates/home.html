@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>prOne App</title>
+    <style>
+        body { background: #1e1e2f; color: white; font-family: Arial; text-align: center; }
+        h1 { color: #4fc3f7; margin-top: 50px; }
+        .time { font-size: 22px; color: #aaa; }
+        .boxes { display: flex; justify-content: center; gap: 30px; margin-top: 50px; }
+        .box { background: #2d2d44; width: 200px; padding: 30px; border-radius: 15px;
+               text-decoration: none; color: white; font-size: 20px; }
+        .box:hover { background: #4fc3f7; color: #1e1e2f; }
+        .side {
+    position: fixed;
+    left: 15px;
+    top: 20px;
+    width: 400px;
+    height: 95vh;
+    background: #1e1e2f;
+    padding: 20px;
+    border-radius: 5px;
+    box-sizing: border-box;
+    overflow-y: auto;
+}
+.side p {
+    display: flex;
+    justify-content: space-between;
+    white-space: nowrap;
+}
+.side a:visited {
+    color: #00ff9d;
+}
+.side a:hover {
+    text-decoration: underline;
+}
+    </style>
+</head>
+<body>
+    <h1>prOne App</h1>
+        <p class="time">🕒 <span id="clock">{{ now }}</span></p>
+    <div class="boxes">
+        <div class="box">🧠<br>CPU<br><b id="cpu">{{ cpu }}%</b></div>
+        <div class="box">💾<br>RAM<br><b id="ram">{{ ram }}%</b></div>
+        <div class="box">📀<br>Disk<br><b id="disk">{{ disk }}%</b></div>
+    </div>
+    <div class="boxes">
+        <a class="box" href="/network">🌐<br>Network Info</a>
+                <div class="box" id="speed" onclick="runSpeed()" style="cursor:pointer">🚀<br>Speed Test<br>לחץ לבדיקה</div>
+        <a class="box" href="/about">ℹ️<br>About</a>
+    </div>
+    <div class="side">
+        <div class="box" id="sites">🌍<br>Sites<br>בודק...</div>
+    </div>
+        <div class="boxes">
+        <div class="box" id="quote" style="width:700px">💡 טוען משפט יומי...</div>
+    </div>
+<script>
+    function update() {
+        fetch("/api/stats")
+            .then(r => r.json())
+            .then(d => {
+                document.getElementById("cpu").innerText = d.cpu + "%";
+                document.getElementById("ram").innerText = d.ram + "%";
+                document.getElementById("disk").innerText = d.disk + "%";
+                   
+            });       
+    }   
+     function checkSites() {
+    fetch("/api/sites")
+        .then(r => r.json())
+        .then(data => {
+            let html = "<h3>Sites</h3>";
+            for (let name in data) {
+              html += `<p><a href="${name}" target="_blank">${name.replace("https://", "")}</a> ${data[name]}</p>`;
+            }
+            document.getElementById("sites").innerHTML = html;
+        });
+}
+        function runSpeed() {
+        let box = document.getElementById("speed");
+        box.innerHTML = "🚀<br>Speed Test<br>⏳ בודק... (20 שניות)";
+        fetch("/api/speed")
+            .then(r => r.json())
+            .then(d => {
+                if (d.error) { box.innerHTML = "🚀<br>Speed Test<br>❌ הבדיקה נכשלה"; return; }
+                box.innerHTML = "🚀<br>Speed Test<br>" +
+                    "⬇️ Down: " + d.download + " Mbps<br>" +
+                    "⬆️ Up: " + d.upload + " Mbps<br>" +
+                    "📶 Ping: " + d.ping + " ms";
+            });
+    }
+    checkSites();
+    setInterval(checkSites, 30000);
+    setInterval(update, 2000);
+    setInterval(() => { document.getElementById("clock").innerText = new Date().toLocaleString("he-IL");}, 1000);
+    fetch("/api/quote")
+        .then(r => r.json())
+        .then(d => {
+            document.getElementById("quote").innerHTML =
+                "💡 <b>המשפט היומי</b><br><i>" + d.text + "</i><br>" +
+                "<span dir='rtl'>" + d.hebrew + "</span><br>— " + d.author;
+        });
+</script>
+</body>
+</html>
