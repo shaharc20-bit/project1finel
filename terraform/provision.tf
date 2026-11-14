@@ -45,11 +45,11 @@ resource "terraform_data" "jenkins" {
   }
 }
 
-# Argo CD Application: the app comes from the GitOps repo
+# Argo CD Application: the app comes from the gitops/ folder
 locals {
   argocd_app = replace(templatefile("${path.module}/argocd/flask-app.yaml.tftpl", {
     repo_url = var.gitops_repo
-    path     = "flask-app"
+    path     = var.gitops_path
   }), "\r\n", "\n")
 }
 

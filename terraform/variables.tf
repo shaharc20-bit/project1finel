@@ -22,5 +22,11 @@ variable "admin_password" {
 variable "gitops_repo" {
   type        = string
   description = "Git repo that Argo CD watches"
-  default     = "https://github.com/shaharc20-bit/project1-gitops.git"
+  default     = "https://github.com/shaharc20-bit/project1finel.git"
+}
+
+variable "gitops_path" {
+  type        = string
+  description = "Folder in the repo with the Kubernetes manifests"
+  default     = "gitops/flask-app"
 }

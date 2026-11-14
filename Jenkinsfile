@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         IMAGE = 'shaharc20/flask-aws-monitor'
-        GITOPS_REPO = 'github.com/shaharc20-bit/project1-gitops.git'
+        REPO = 'github.com/shaharc20-bit/project1finel.git'
     }
 
     stages {
@@ -44,20 +44,20 @@ pipeline {
             }
         }
 
-        stage('Push to GitOps repo') {
+        stage('Push to gitops/') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
                     sh '''
-                        rm -rf gitops
-                        git clone "https://$GIT_USER:$GIT_TOKEN@$GITOPS_REPO" gitops
-                        mkdir -p gitops/flask-app
-                        cp flask-app.yaml gitops/flask-app/flask-app.yaml
-                        cd gitops
+                        rm -rf deploy-repo
+                        git clone "https://$GIT_USER:$GIT_TOKEN@$REPO" deploy-repo
+                        mkdir -p deploy-repo/gitops/flask-app
+                        cp flask-app.yaml deploy-repo/gitops/flask-app/flask-app.yaml
+                        cd deploy-repo
                         git config user.name "jenkins"
                         git config user.email "jenkins@aws-lab"
-                        git add flask-app
+                        git add gitops
                         if git diff --cached --quiet; then
-                            echo "GitOps repo already has $IMAGE:$TAG"
+                            echo "gitops/ already has $IMAGE:$TAG"
                             exit 0
                         fi
                         git commit -m "Deploy $IMAGE:$TAG"
@@ -71,7 +71,7 @@ pipeline {
     post {
         always {
             sh 'docker logout || true'
-            sh 'rm -rf gitops'
+            sh 'rm -rf deploy-repo'
         }
     }
 }
