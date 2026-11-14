@@ -11,7 +11,9 @@ pipeline {
             steps {
                 checkout scm
                 script {
-                    env.TAG = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+                    // Tag = last commit that changed the app or the chart.
+                    // A build on a Jenkins "Deploy" commit gets the same tag, so gitops/ does not change (no loop).
+                    env.TAG = sh(returnStdout: true, script: 'git log -1 --format=%h -- app helm').trim()
                 }
                 echo "Image tag: ${env.TAG}"
             }

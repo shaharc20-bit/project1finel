@@ -25,13 +25,14 @@ git push
 
 | Stage | What it does |
 |---|---|
-| Checkout | Image tag = short commit SHA |
+| Checkout | Image tag = short SHA of the last commit that changed `app/` or `helm/` |
 | Build image | `docker build -t shaharc20/flask-aws-monitor:<sha> app` |
 | Push to Docker Hub | `docker push` with the `dockerhub` credential |
 | Helm template | `helm lint`, `helm template --set image.tag=<sha>` |
 | Push to gitops/ | Commits `gitops/flask-app/flask-app.yaml` |
 
 `gitops/` is written only by Jenkins. Every `Deploy ...` commit is one deployment, rollback is `git revert`.
+A build on a Jenkins commit gets the same tag, so `gitops/` does not change and there is no build loop.
 
 ## Infrastructure (terraform/)
 
