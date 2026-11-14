@@ -3,13 +3,16 @@ pipeline {
 
     environment {
         IMAGE = 'shaharc20/flask-aws-monitor'
-        TAG   = "${BUILD_NUMBER}"
     }
 
     stages {
         stage('Checkout') {
             steps {
                 checkout scm
+                script {
+                    env.TAG = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+                }
+                echo "Image tag: ${env.TAG}"
             }
         }
 
@@ -30,14 +33,24 @@ pipeline {
             }
         }
 
-        stage('Update k8s/deployment.yaml') {
+        stage('Helm template') {
+            steps {
+                sh '''
+                    helm lint helm/flask-app
+                    helm template flask-app helm/flask-app --set image.tag=$TAG > k8s/flask-app.yaml
+                    git rm -q --ignore-unmatch k8s/deployment.yaml k8s/service.yaml
+                    cat k8s/flask-app.yaml
+                '''
+            }
+        }
+
+        stage('Push to GitOps (k8s/)') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
                     sh '''
                         git config user.name "jenkins"
                         git config user.email "jenkins@aws-lab"
-                        sed -i "s|image: .*|image: $IMAGE:$TAG|" k8s/deployment.yaml
-                        git add k8s/deployment.yaml
+                        git add k8s
                         git commit -m "Deploy $IMAGE:$TAG"
                         git push "https://$GIT_USER:$GIT_TOKEN@github.com/shaharc20-bit/project1finel.git" HEAD:main
                     '''

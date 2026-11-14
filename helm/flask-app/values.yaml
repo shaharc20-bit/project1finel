@@ -1,0 +1,19 @@
+replicaCount: 3
+
+image:
+  repository: shaharc20/flask-aws-monitor
+  tag: latest
+
+service:
+  type: LoadBalancer
+  port: 5001
+
+awsRegion: eu-north-1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
