@@ -31,7 +31,7 @@ spec:
     spec:
       containers:
         - name: flask-app
-          image: "shaharc20/flask-aws-monitor:9f9c5a9"
+          image: "shaharc20/flask-aws-monitor:c0a58e3"
           ports:
             - containerPort: 5001
           env:
