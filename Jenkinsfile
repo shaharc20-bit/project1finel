@@ -3,6 +3,7 @@ pipeline {
 
     environment {
         IMAGE = 'shaharc20/flask-aws-monitor'
+        GITOPS_REPO = 'github.com/shaharc20-bit/project1-gitops.git'
     }
 
     stages {
@@ -37,22 +38,30 @@ pipeline {
             steps {
                 sh '''
                     helm lint helm/flask-app
-                    helm template flask-app helm/flask-app --set image.tag=$TAG > k8s/flask-app.yaml
-                    git rm -q --ignore-unmatch k8s/deployment.yaml k8s/service.yaml
-                    cat k8s/flask-app.yaml
+                    helm template flask-app helm/flask-app --set image.tag=$TAG > flask-app.yaml
+                    cat flask-app.yaml
                 '''
             }
         }
 
-        stage('Push to GitOps (k8s/)') {
+        stage('Push to GitOps repo') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
                     sh '''
+                        rm -rf gitops
+                        git clone "https://$GIT_USER:$GIT_TOKEN@$GITOPS_REPO" gitops
+                        mkdir -p gitops/flask-app
+                        cp flask-app.yaml gitops/flask-app/flask-app.yaml
+                        cd gitops
                         git config user.name "jenkins"
                         git config user.email "jenkins@aws-lab"
-                        git add k8s
+                        git add flask-app
+                        if git diff --cached --quiet; then
+                            echo "GitOps repo already has $IMAGE:$TAG"
+                            exit 0
+                        fi
                         git commit -m "Deploy $IMAGE:$TAG"
-                        git push "https://$GIT_USER:$GIT_TOKEN@github.com/shaharc20-bit/project1finel.git" HEAD:main
+                        git push origin HEAD:main
                     '''
                 }
             }
@@ -62,6 +71,7 @@ pipeline {
     post {
         always {
             sh 'docker logout || true'
+            sh 'rm -rf gitops'
         }
     }
 }
