@@ -1,0 +1,4 @@
+# Copy to aws-values.yaml (it is in .gitignore) and fill in. NEVER commit real keys.
+aws:
+  accessKeyId: "<your-access-key-id>"
+  secretAccessKey: "<your-secret-access-key>"
