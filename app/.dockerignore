@@ -2,3 +2,9 @@ speedtest.exe
 .venv
 __pycache__
 *.pyc
+tests
+.flake8
+requirements-dev.txt
+README.md
+docker-compose.yml
+.env
