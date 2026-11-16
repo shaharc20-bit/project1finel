@@ -20,7 +20,7 @@ pipeline {
             steps {
                 checkout scm
                 script {
-                    env.TAG = sh(returnStdout: true, script: 'git log -1 --format=%h -- app helm').trim()
+                    env.TAG = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
                 }
             }
         }
@@ -66,8 +66,8 @@ pipeline {
         stage('Update GitOps (dev)') {
             steps {
                 script {
-                    gitopsUpdate(repo: 'github.com/shaharc20-bit/project1finel.git',
-                                 file: 'gitops/flask-aws-monitor/dev/values.yaml', tag: env.TAG)
+                    gitopsUpdate(repo: 'github.com/shaharc20-bit/project1-gitops.git',
+                                 file: 'flask-aws-monitor/dev/values.yaml', tag: env.TAG)
                 }
             }
         }

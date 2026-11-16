@@ -6,7 +6,7 @@
 - `service.yaml` - `LoadBalancer` on port 5001
 - `aws-secret.example.yaml` - example only. On EC2 the pods use the node IAM role, so the secret is optional (`optional: true` in the Deployment)
 
-These manifests are the manual way. The automatic way (Jenkins -> `gitops/` -> Argo CD) uses the Helm chart in `../helm`.
+These manifests are the manual way. The automatic way (Jenkins -> project1-gitops -> Argo CD) uses the Helm chart in `../helm`.
 
 ## Missing / blockers
 - None. Real AWS keys are never committed; create the Secret with kubectl.
