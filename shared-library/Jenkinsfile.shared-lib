@@ -6,10 +6,6 @@
 pipeline {
     agent any
 
-    options {
-        timestamps()
-    }
-
     environment {
         APP_DIR    = 'app'
         IMAGE_NAME = 'shaharc20/flask-aws-monitor'
