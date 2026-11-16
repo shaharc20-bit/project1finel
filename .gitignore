@@ -5,3 +5,8 @@ __pycache__/
 code/helm/aws-values.yaml
 rendered/
 .DS_Store
+
+# secrets / local files
+.env
+aws-values.yaml
+*.pem

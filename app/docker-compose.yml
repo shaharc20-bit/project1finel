@@ -1,0 +1,16 @@
+# Run the app on the builder:  docker compose up -d --build
+# AWS keys are read from the shell or from a local .env file (git-ignored):
+#   AWS_ACCESS_KEY_ID=...
+#   AWS_SECRET_ACCESS_KEY=...
+#   AWS_REGION=us-east-1
+services:
+  flask-aws-monitor:
+    build: .
+    container_name: flask-aws-monitor
+    ports:
+      - "5001:5001"
+    environment:
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+    restart: unless-stopped

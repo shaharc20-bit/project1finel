@@ -12,12 +12,13 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    HOST=0.0.0.0 \
     PORT=5001
 
 WORKDIR /app
 COPY --from=builder /install /usr/local
 COPY --from=builder /usr/local/bin/speedtest /usr/local/bin/speedtest
-COPY one.py .
+COPY one.py app.py ./
 COPY templates/ templates/
 
 RUN useradd --create-home --uid 10001 appuser
@@ -28,4 +29,5 @@ EXPOSE 5001
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/health')"]
 
-CMD ["python", "one.py"]
+# The exam app (AWS monitor). To run the prOne app instead: CMD ["python", "one.py"]
+CMD ["python", "app.py"]
