@@ -22,5 +22,10 @@ spec:
           env:
             - name: AWS_REGION
               value: {{ .Values.awsRegion | quote }}
+          {{- if or .Values.aws.existingSecret .Values.aws.accessKeyId }}
+          envFrom:
+            - secretRef:
+                name: {{ .Values.aws.existingSecret | default (printf "%s-aws" .Release.Name) }}
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

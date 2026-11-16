@@ -1,0 +1,126 @@
+# Azure DevOps pipeline - replicates Jenkinsfile: Lint + Security scan (parallel jobs) -> Build -> Push.
+#
+# Setup in Azure DevOps:
+#   1. Pipelines -> New pipeline -> GitHub -> this repo -> "Existing Azure Pipelines YAML file" -> /azure-pipelines.yml
+#   2. Pipelines -> Library -> variable group "dockerhub" with:
+#        DOCKERHUB_USERNAME            (plain)
+#        DOCKERHUB_TOKEN               (click the lock = secret, stored encrypted)
+#   3. Project settings -> Service connections -> Docker Registry -> Docker Hub, named "dockerhub-connection"
+#
+# MOCK: set the pipeline variable MOCK_CHECKS=true to print the lint/scan commands instead of running them.
+
+trigger:
+  branches:
+    include:
+      - main
+      - dev
+
+pr:
+  branches:
+    include:
+      - main
+      - dev
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: dockerhub
+  - name: appDir
+    value: app
+  - name: imageRepo
+    value: $(DOCKERHUB_USERNAME)/flask-aws-monitor
+  - name: imageTag
+    value: $(Build.SourceVersion)
+  - name: MOCK_CHECKS
+    value: 'false'
+  - name: pyRun
+    value: docker run --rm -u $(id -u):$(id -g) -e HOME=/tmp -e PYTHONDONTWRITEBYTECODE=1 -v $(Build.SourcesDirectory):/src -w /src/app python:3.12-slim
+
+stages:
+  - stage: Checks
+    displayName: Lint and Security Scan (parallel jobs)
+    jobs:
+      - job: Lint
+        displayName: Linting
+        steps:
+          - checkout: self
+          - script: |
+              if [ "$(MOCK_CHECKS)" = "true" ]; then echo "MOCK: flake8"; exit 0; fi
+              $(pyRun) sh -c "pip install --user -q flake8 && python -m flake8 ."
+            displayName: flake8 (Python)
+          - script: |
+              if [ "$(MOCK_CHECKS)" = "true" ]; then echo "MOCK: hadolint"; exit 0; fi
+              docker run --rm -i hadolint/hadolint < $(appDir)/Dockerfile
+            displayName: hadolint (Dockerfile)
+          - script: |
+              if [ "$(MOCK_CHECKS)" = "true" ]; then echo "MOCK: shellcheck"; exit 0; fi
+              files=$(find . -name "*.sh" -not -path "./.git/*")
+              if [ -n "$files" ]; then
+                docker run --rm -v $(Build.SourcesDirectory):/src -w /src koalaman/shellcheck:stable $files
+              else
+                echo "No shell scripts to check"
+              fi
+            displayName: shellcheck (Shell)
+          - script: |
+              if [ "$(MOCK_CHECKS)" = "true" ]; then echo "MOCK: helm lint"; exit 0; fi
+              docker run --rm -v $(Build.SourcesDirectory):/src -w /src alpine/helm:3.16.2 lint helm/flask-app
+            displayName: helm lint
+
+      - job: SecurityScan
+        displayName: Security Scan
+        steps:
+          - checkout: self
+          - script: |
+              if [ "$(MOCK_CHECKS)" = "true" ]; then echo "MOCK: bandit"; exit 0; fi
+              $(pyRun) sh -c "pip install --user -q bandit && python -m bandit -r . -x ./tests -ll -s B104"
+            displayName: bandit (Python)
+          - script: |
+              if [ "$(MOCK_CHECKS)" = "true" ]; then echo "MOCK: trivy fs"; exit 0; fi
+              docker run --rm -v $(Build.SourcesDirectory):/src aquasec/trivy:latest \
+                fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 0 /src
+            displayName: trivy fs (dependencies, secrets, config)
+
+      - job: UnitTests
+        displayName: Unit Tests
+        steps:
+          - checkout: self
+          - script: |
+              $(pyRun) sh -c "pip install --user -q -r requirements-dev.txt && python -m pytest -q -p no:cacheprovider tests --junitxml=/src/test-results.xml"
+            displayName: pytest
+          - task: PublishTestResults@2
+            condition: always()
+            inputs:
+              testResultsFiles: $(Build.SourcesDirectory)/test-results.xml
+
+  - stage: BuildPush
+    displayName: Build and Push
+    dependsOn: Checks
+    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+    jobs:
+      - job: BuildAndPush
+        displayName: Docker build, scan, push
+        steps:
+          - checkout: self
+          - task: Docker@2
+            displayName: Login to Docker Hub
+            inputs:
+              command: login
+              containerRegistry: dockerhub-connection
+          - script: docker build -t $(imageRepo):$(imageTag) -t $(imageRepo):latest $(appDir)
+            displayName: docker build
+          - script: |
+              if [ "$(MOCK_CHECKS)" = "true" ]; then echo "MOCK: trivy image"; exit 0; fi
+              docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest \
+                image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 $(imageRepo):$(imageTag)
+            displayName: trivy image
+          - script: |
+              docker push $(imageRepo):$(imageTag)
+              docker push $(imageRepo):latest
+            displayName: docker push
+          - task: Docker@2
+            displayName: Logout
+            condition: always()
+            inputs:
+              command: logout
+              containerRegistry: dockerhub-connection

@@ -1,9 +1,32 @@
+// Pipeline: checkout -> PARALLEL lint + security scan -> docker build -> push to Docker Hub
+//           -> helm template -> push to the GitOps repo (project1-gitops); Argo CD deploys from there.
+// MOCK_CHECKS=true prints "MOCK: ..." instead of running the lint/scan tools (allowed by the exam).
+// The tools run in throw-away containers; --volumes-from jenkins gives them the Jenkins workspace
+// (Jenkins runs in the container named "jenkins" and uses the host docker socket).
+
+def check(String name, String cmd) {
+    if (params.MOCK_CHECKS) {
+        echo "MOCK: ${name}"
+    } else {
+        sh cmd
+    }
+}
+
 pipeline {
     agent any
 
+    options {
+        timestamps()
+    }
+
+    parameters {
+        booleanParam(name: 'MOCK_CHECKS', defaultValue: false, description: 'Mock the lint and security tools (print instead of run)')
+    }
+
     environment {
+        RUN = 'docker run --rm --volumes-from jenkins'
         IMAGE = 'shaharc20/flask-aws-monitor'
-        REPO = 'github.com/shaharc20-bit/project1finel.git'
+        GITOPS_REPO = 'github.com/shaharc20-bit/project1-gitops.git'
     }
 
     stages {
@@ -11,17 +34,86 @@ pipeline {
             steps {
                 checkout scm
                 script {
-                    // Tag = last commit that changed the app or the chart.
-                    // A build on a Jenkins "Deploy" commit gets the same tag, so gitops/ does not change (no loop).
-                    env.TAG = sh(returnStdout: true, script: 'git log -1 --format=%h -- app helm').trim()
+                    // Image tag = short commit id of this (code) repo
+                    env.TAG = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
                 }
                 echo "Image tag: ${env.TAG}"
+            }
+        }
+
+        stage('Parallel Checks') {
+            parallel {
+                stage('Lint: flake8 (Python)') {
+                    steps {
+                        script {
+                            check('flake8 app', '$RUN -w $WORKSPACE/app python:3.12-slim sh -c "pip install -q --no-cache-dir flake8 && flake8 ."')
+                        }
+                    }
+                }
+                stage('Lint: hadolint (Dockerfile)') {
+                    steps {
+                        script {
+                            check('hadolint app/Dockerfile', 'docker run --rm -i hadolint/hadolint < app/Dockerfile')
+                        }
+                    }
+                }
+                stage('Lint: shellcheck (Shell)') {
+                    steps {
+                        script {
+                            check('shellcheck *.sh', '''
+                                files=$(find . -name "*.sh" -not -path "./.git/*")
+                                if [ -n "$files" ]; then
+                                    $RUN -w $WORKSPACE koalaman/shellcheck:stable $files
+                                else
+                                    echo "No shell scripts to check"
+                                fi
+                            ''')
+                        }
+                    }
+                }
+                stage('Lint: helm') {
+                    steps {
+                        script {
+                            check('helm lint', '$RUN -w $WORKSPACE alpine/helm:3.16.2 lint helm/flask-app')
+                        }
+                    }
+                }
+                stage('Security: bandit (Python)') {
+                    steps {
+                        script {
+                            // B104 = bind to 0.0.0.0, which is required inside a container
+                            check('bandit app', '$RUN -w $WORKSPACE/app python:3.12-slim sh -c "pip install -q --no-cache-dir bandit && bandit -r . -x ./tests -ll -s B104"')
+                        }
+                    }
+                }
+                stage('Security: trivy fs (deps, secrets, config)') {
+                    steps {
+                        script {
+                            check('trivy fs', '$RUN -v trivy-cache:/root/.cache aquasec/trivy:latest fs --scanners vuln,secret,misconfig --severity HIGH,CRITICAL --exit-code 0 $WORKSPACE')
+                        }
+                    }
+                }
+                stage('Unit tests (pytest + moto)') {
+                    steps {
+                        script {
+                            check('pytest app/tests', '$RUN -e PYTHONDONTWRITEBYTECODE=1 -w $WORKSPACE/app python:3.12-slim sh -c "pip install -q --no-cache-dir -r requirements-dev.txt && python -m pytest -q -p no:cacheprovider tests"')
+                        }
+                    }
+                }
             }
         }
 
         stage('Build image') {
             steps {
                 sh 'docker build -t $IMAGE:$TAG app'
+            }
+        }
+
+        stage('Scan image (trivy)') {
+            steps {
+                script {
+                    check('trivy image', 'docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache aquasec/trivy:latest image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 $IMAGE:$TAG')
+                }
             }
         }
 
@@ -46,24 +138,39 @@ pipeline {
             }
         }
 
-        stage('Push to gitops/') {
+        stage('Push to GitOps repo') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
                     sh '''
                         rm -rf deploy-repo
-                        git clone "https://$GIT_USER:$GIT_TOKEN@$REPO" deploy-repo
-                        mkdir -p deploy-repo/gitops/flask-app
-                        cp flask-app.yaml deploy-repo/gitops/flask-app/flask-app.yaml
+                        git clone "https://$GIT_USER:$GIT_TOKEN@$GITOPS_REPO" deploy-repo
+
+                        # 1. all-in-one yaml made by helm template (Argo CD Application "flask-app")
+                        mkdir -p deploy-repo/flask-app
+                        cp flask-app.yaml deploy-repo/flask-app/flask-app.yaml
+
+                        # 2. the chart lives in this repo (helm/); the GitOps repo keeps a copy for the ApplicationSets
+                        rm -rf deploy-repo/charts/flask-app
+                        mkdir -p deploy-repo/charts
+                        cp -r helm/flask-app deploy-repo/charts/flask-app
+
+                        # 3. dev environment follows the new image; qa/prd are promoted by hand (pull request)
+                        sed -i 's|^  tag: .*|  tag: "'"$TAG"'"|' deploy-repo/flask-aws-monitor/dev/values.yaml
+
                         cd deploy-repo
                         git config user.name "jenkins"
                         git config user.email "jenkins@aws-lab"
-                        git add gitops
+                        git add -A
                         if git diff --cached --quiet; then
-                            echo "gitops/ already has $IMAGE:$TAG"
+                            echo "GitOps repo already has $IMAGE:$TAG"
                             exit 0
                         fi
                         git commit -m "Deploy $IMAGE:$TAG"
-                        git push origin HEAD:main
+                        for attempt in 1 2 3; do
+                            git push origin HEAD:main && break
+                            echo "push rejected (attempt $attempt), rebasing"
+                            git pull --rebase origin main
+                        done
                     '''
                 }
             }

@@ -5,8 +5,26 @@ image:
   tag: latest
 
 service:
-  type: LoadBalancer
+  type: LoadBalancer   # LoadBalancer | NodePort | ClusterIP (set per environment)
   port: 5001
+  nodePort: ""         # only for type NodePort (30000-32767)
+
+# Optional Ingress (bonus). Needs an ingress controller (k3s ships Traefik).
+ingress:
+  enabled: false
+  className: traefik
+  host: ""
+  path: /
+  annotations: {}
+
+# AWS keys for the app (environment variables). Put the real keys in aws-values.yaml
+# (git-ignored, see aws-values.yaml.example) and install with: helm install ... -f aws-values.yaml
+# Without keys the pod uses the IAM role of the EC2 node.
+# existingSecret = name of a Secret you created yourself with kubectl.
+aws:
+  accessKeyId: ""
+  secretAccessKey: ""
+  existingSecret: ""
 
 awsRegion: eu-north-1
 
