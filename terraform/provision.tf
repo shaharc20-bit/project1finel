@@ -81,3 +81,39 @@ resource "terraform_data" "argocd_app" {
     ]
   }
 }
+
+# Argo CD Application "applicationsets": creates the dev/qa/prd Applications from gitops/applicationsets/
+locals {
+  argocd_applicationsets = replace(templatefile("${path.module}/argocd/applicationsets.yaml.tftpl", {
+    repo_url = var.gitops_repo
+  }), "\r\n", "\n")
+}
+
+resource "terraform_data" "argocd_applicationsets" {
+  depends_on = [terraform_data.argocd_app]
+
+  triggers_replace = [
+    module.server.instance_id,
+    sha256(local.argocd_applicationsets),
+  ]
+
+  connection {
+    type        = "ssh"
+    host        = module.server.public_ip
+    user        = "ubuntu"
+    private_key = file(pathexpand("~/.ssh/aws-lab"))
+    timeout     = "5m"
+  }
+
+  provisioner "file" {
+    content     = local.argocd_applicationsets
+    destination = "/tmp/argocd-applicationsets.yaml"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "kubectl apply -f /tmp/argocd-applicationsets.yaml",
+      "kubectl -n argocd get applications",
+    ]
+  }
+}

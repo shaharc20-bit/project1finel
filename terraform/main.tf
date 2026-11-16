@@ -31,6 +31,8 @@ locals {
     5001  = "Flask app"
     8080  = "Jenkins"
     30443 = "Argo CD"
+    30501 = "Flask app dev"
+    30502 = "Flask app qa"
   }
 }
 
