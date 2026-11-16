@@ -27,7 +27,7 @@ gitops/
 | cpu / memory limit | 100m / 128Mi | 200m / 256Mi | 500m / 512Mi |
 | image tag | set by Jenkins on every build | promoted by hand | promoted by hand |
 
-`stress-app`: dev 1 CPU worker at 10% load, prd also stresses memory and has an HPA (see the values files).
+`stress-app`: the load grows from dev to prd and prd also stresses memory and has an HPA (see the values files).
 
 ## Missing / blockers
 - The exam suggests a separate GitOps repository; here `gitops/` is a folder in this repository (one-repo decision). The ApplicationSets only need their `repoURL` changed to move it to another repo.

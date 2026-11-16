@@ -6,12 +6,19 @@ Jenkins builds the app, and Argo CD deploys it to Kubernetes (GitOps).
 ## Structure
 
 ```
-app/              Code: prOne Flask app, Dockerfile
-helm/flask-app/   Helm chart: Deployment (3 replicas) + LoadBalancer Service, port 5001
-Jenkinsfile       CI pipeline
-gitops/           Kubernetes manifests rendered by Jenkins, watched by Argo CD
-terraform/        Infrastructure
+app/                    Flask AWS Monitor (app.py, fixed), Dockerfile, tests, docker-compose.yml  (+ prOne app: one.py)
+helm/flask-app/         Helm chart: Deployment, Service, optional Ingress, AWS keys from aws-values.yaml (git-ignored)
+Jenkinsfile             CI pipeline: parallel lint + security scan, build, push, helm template, gitops
+azure-pipelines.yml     Azure DevOps pipeline with the same stages (bonus)
+k8s/                    plain Kubernetes manifests (Section 7)
+gitops/                 what Argo CD deploys: all-in-one yaml, dev/qa/prd values, ApplicationSets, bonus apps
+shared-library/         Jenkins shared library (vars/), optional
+terraform/              Infrastructure of the lab: VPC, EC2, Docker, k3s, Helm, Jenkins, Argo CD
+terraform/builder/      Exam task: EC2 "builder" with Docker + Compose in the existing VPC (us-east-1)
+docs/evidence/          logs and screenshots that show every part working
 ```
+
+Every folder has its own `README.md`: what is implemented, what is missing, how to run it.
 
 ## Flow
 
@@ -85,20 +92,16 @@ Remove everything: `terraform destroy` in `terraform/` (not in `bootstrap`).
 
 ## App
 
-| Path | |
-|---|---|
-| `/` | Dashboard: CPU, RAM, disk, clock, sites status, quote of the day |
-| `/network` | Hostname and IP (in Kubernetes: the pod) |
-| `/about` | About page |
-| `/health` | Health check |
-| `/api/stats`, `/api/speed`, `/api/sites`, `/api/quote` | JSON |
+The Docker image runs **`app/app.py`** - the exam application (Flask AWS Monitor: EC2 instances, VPCs, Load Balancers, AMIs; port 5001; `/health`).
+The earlier prOne app (`app/one.py`, dashboard with CPU/RAM/disk) is still in the folder; switch back by changing the last line of `app/Dockerfile` to `CMD ["python", "one.py"]`.
 
 Run locally:
 
 ```
 cd app
-pip install -r requirements.txt
-python one.py                      # http://localhost:6555
+pip install -r requirements-dev.txt
+python -m pytest -q tests          # mocked AWS (moto)
+AWS_REGION=us-east-1 python app.py # http://localhost:5001  (AWS keys from the environment)
 ```
 
 ## Security
@@ -109,3 +112,31 @@ python one.py                      # http://localhost:6555
 - State in S3 is encrypted, versioned and locked.
 - Ports are open only to my IP. IMDSv2 is required.
 - Image: multi-stage, non-root user (`10001`), pinned dependencies, `HEALTHCHECK`, no debug mode, resource limits.
+
+## Exam sections -> where to find them
+
+| Section | Folder / file | Feature branch |
+|---|---|---|
+| 1 Git repository, Git Flow | this repo: `main`, `dev`, `feature/*`, tags | - |
+| 3 Dockerize the app | `app/Dockerfile`, `app/docker-compose.yml` | `feature/aws-app` |
+| 4 Fix the bug | `app/app.py`, `app/tests/` | `feature/fix-bug` |
+| Terraform: EC2 builder | `terraform/builder/` | `feature/terraform-builder` |
+| 5 Jenkins (parallel lint + security scan, build, push) | `Jenkinsfile` | `feature/jenkins-ci` |
+| 5.1 Azure DevOps (bonus) | `azure-pipelines.yml` | `feature/azure-pipeline` |
+| 7 Kubernetes | `k8s/` | `feature/k8s-manifests` |
+| Helm | `helm/flask-app/` | `feature/helm-chart` |
+| 8 Argo CD, ApplicationSets, dev/qa/prd | `gitops/` | `feature/gitops-environments` |
+| Shared libraries (optional) | `shared-library/` | `feature/shared-library` |
+
+## Git Flow
+
+- `main` only changes through a **pull request** from `dev` (no direct pushes by people). Every merge into `main` gets a tag (`v1.0.0`, ...).
+- Every section is developed in its own `feature/*` branch, merged into `dev` (`--no-ff`), and `dev` goes to `main` with one pull request.
+- Exception: the Jenkins bot commits `Deploy ...` messages to `main`, only inside `gitops/` (that is the GitOps hand-over to Argo CD).
+- Mocks: `MOCK_CHECKS=true` in Jenkins/Azure prints the lint and scan steps instead of running them. By default the real tools run (flake8, hadolint, shellcheck, helm lint, bandit, trivy).
+
+## Blockers and notes
+
+- The VPC `vpc-044604d0bfb707142` of the exam exists only in the instructor's account (see `terraform/builder/README.md`).
+- The GitOps part is a folder (`gitops/`) of this repository, not a separate repository.
+- Proof that everything runs: `docs/evidence/`.
