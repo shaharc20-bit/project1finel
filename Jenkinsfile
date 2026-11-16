@@ -15,10 +15,6 @@ def check(String name, String cmd) {
 pipeline {
     agent any
 
-    options {
-        timestamps()
-    }
-
     parameters {
         booleanParam(name: 'MOCK_CHECKS', defaultValue: false, description: 'Mock the lint and security tools (print instead of run)')
     }
