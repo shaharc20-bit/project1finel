@@ -1,5 +1,5 @@
 // Pipeline: checkout -> PARALLEL lint + security scan -> docker build -> push to Docker Hub
-//           -> helm template -> push to gitops/ (Argo CD deploys from there).
+//           -> helm template -> push to the GitOps repo (project1-gitops); Argo CD deploys from there.
 // MOCK_CHECKS=true prints "MOCK: ..." instead of running the lint/scan tools (allowed by the exam).
 // The tools run in throw-away containers; --volumes-from jenkins gives them the Jenkins workspace
 // (Jenkins runs in the container named "jenkins" and uses the host docker socket).
@@ -26,7 +26,7 @@ pipeline {
     environment {
         RUN = 'docker run --rm --volumes-from jenkins'
         IMAGE = 'shaharc20/flask-aws-monitor'
-        REPO = 'github.com/shaharc20-bit/project1finel.git'
+        GITOPS_REPO = 'github.com/shaharc20-bit/project1-gitops.git'
     }
 
     stages {
@@ -34,9 +34,8 @@ pipeline {
             steps {
                 checkout scm
                 script {
-                    // Tag = last commit that changed the app or the chart.
-                    // A build on a Jenkins "Deploy" commit gets the same tag, so gitops/ does not change (no loop).
-                    env.TAG = sh(returnStdout: true, script: 'git log -1 --format=%h -- app helm').trim()
+                    // Image tag = short commit id of this (code) repo
+                    env.TAG = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
                 }
                 echo "Image tag: ${env.TAG}"
             }
@@ -139,26 +138,39 @@ pipeline {
             }
         }
 
-        stage('Push to gitops/') {
+        stage('Push to GitOps repo') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'github', usernameVariable: 'GIT_USER', passwordVariable: 'GIT_TOKEN')]) {
                     sh '''
                         rm -rf deploy-repo
-                        git clone "https://$GIT_USER:$GIT_TOKEN@$REPO" deploy-repo
-                        mkdir -p deploy-repo/gitops/flask-app
-                        cp flask-app.yaml deploy-repo/gitops/flask-app/flask-app.yaml
-                        # dev environment (ApplicationSet) follows the new image; qa/prd are promoted by hand
-                        sed -i 's|^  tag: .*|  tag: "'"$TAG"'"|' deploy-repo/gitops/flask-aws-monitor/dev/values.yaml
+                        git clone "https://$GIT_USER:$GIT_TOKEN@$GITOPS_REPO" deploy-repo
+
+                        # 1. all-in-one yaml made by helm template (Argo CD Application "flask-app")
+                        mkdir -p deploy-repo/flask-app
+                        cp flask-app.yaml deploy-repo/flask-app/flask-app.yaml
+
+                        # 2. the chart lives in this repo (helm/); the GitOps repo keeps a copy for the ApplicationSets
+                        rm -rf deploy-repo/charts/flask-app
+                        mkdir -p deploy-repo/charts
+                        cp -r helm/flask-app deploy-repo/charts/flask-app
+
+                        # 3. dev environment follows the new image; qa/prd are promoted by hand (pull request)
+                        sed -i 's|^  tag: .*|  tag: "'"$TAG"'"|' deploy-repo/flask-aws-monitor/dev/values.yaml
+
                         cd deploy-repo
                         git config user.name "jenkins"
                         git config user.email "jenkins@aws-lab"
-                        git add gitops
+                        git add -A
                         if git diff --cached --quiet; then
-                            echo "gitops/ already has $IMAGE:$TAG"
+                            echo "GitOps repo already has $IMAGE:$TAG"
                             exit 0
                         fi
                         git commit -m "Deploy $IMAGE:$TAG"
-                        git push origin HEAD:main
+                        for attempt in 1 2 3; do
+                            git push origin HEAD:main && break
+                            echo "push rejected (attempt $attempt), rebasing"
+                            git pull --rebase origin main
+                        done
                     '''
                 }
             }

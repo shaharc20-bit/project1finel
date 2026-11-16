@@ -1,6 +1,6 @@
-// Set the image tag in a values file of the GitOps folder and push it.
-// gitopsUpdate(repo: 'github.com/shaharc20-bit/project1finel.git',
-//              file: 'gitops/flask-aws-monitor/dev/values.yaml', tag: 'abc1234')
+// Set the image tag in a values file of the GitOps repo and push it.
+// gitopsUpdate(repo: 'github.com/shaharc20-bit/project1-gitops.git',
+//              file: 'flask-aws-monitor/dev/values.yaml', tag: 'abc1234')
 def call(Map args) {
     String repo = args.repo
     String branch = args.get('branch', 'main')

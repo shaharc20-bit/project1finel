@@ -13,7 +13,7 @@ helm/flask-app/
 - Service: `ClusterIP`, `NodePort` (with `service.nodePort`) or `LoadBalancer`, port 5001 - chosen per environment in `values.yaml`.
 - Ingress (bonus): `ingress.enabled=true`, host and path.
 - AWS keys as environment variables from a Secret. The keys live in **`aws-values.yaml`** which is in `.gitignore`. Without keys the pods use the IAM role of the EC2 node.
-- Jenkins renders the chart with `helm template` into `gitops/flask-app/flask-app.yaml`, and Argo CD deploys it.
+- Jenkins renders the chart with `helm template` into `flask-app/flask-app.yaml` of the GitOps repo (project1-gitops) and copies the chart there for the ApplicationSets; Argo CD deploys it.
 
 ## Missing / blockers
 - None. The chart directory is `flask-app` (not `flask-aws-monitor`), because the pipeline and Argo CD already use this path.
