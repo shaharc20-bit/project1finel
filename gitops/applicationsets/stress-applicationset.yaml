@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: stress-applicationset
+  namespace: argocd
+spec:
+  generators:
+    - git:
+        repoURL: https://github.com/shaharc20-bit/project1finel.git
+        revision: main
+        directories:
+          - path: gitops/stress-app/*
+  template:
+    metadata:
+      name: 'stress-app-{{path.basename}}'
+      labels:
+        app: stress-app
+        env: '{{path.basename}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/shaharc20-bit/project1finel.git
+        targetRevision: main
+        path: gitops/charts/stress-app
+        helm:
+          releaseName: stress-app
+          valueFiles:
+            - '../../stress-app/{{path.basename}}/values.yaml'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: 'stress-{{path.basename}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

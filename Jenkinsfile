@@ -147,6 +147,8 @@ pipeline {
                         git clone "https://$GIT_USER:$GIT_TOKEN@$REPO" deploy-repo
                         mkdir -p deploy-repo/gitops/flask-app
                         cp flask-app.yaml deploy-repo/gitops/flask-app/flask-app.yaml
+                        # dev environment (ApplicationSet) follows the new image; qa/prd are promoted by hand
+                        sed -i 's|^  tag: .*|  tag: "'"$TAG"'"|' deploy-repo/gitops/flask-aws-monitor/dev/values.yaml
                         cd deploy-repo
                         git config user.name "jenkins"
                         git config user.email "jenkins@aws-lab"

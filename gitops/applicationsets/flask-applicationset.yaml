@@ -1,0 +1,39 @@
+# One ApplicationSet -> one Argo CD Application per environment folder (dev, qa, prd).
+# Git generator: every folder gitops/flask-aws-monitor/<env> becomes an Application.
+# The chart is helm/flask-app, the values are gitops/flask-aws-monitor/<env>/values.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: flask-aws-monitor
+  namespace: argocd
+spec:
+  generators:
+    - git:
+        repoURL: https://github.com/shaharc20-bit/project1finel.git
+        revision: main
+        directories:
+          - path: gitops/flask-aws-monitor/*
+  template:
+    metadata:
+      name: 'flask-aws-monitor-{{path.basename}}'
+      labels:
+        app: flask-aws-monitor
+        env: '{{path.basename}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/shaharc20-bit/project1finel.git
+        targetRevision: main
+        path: helm/flask-app
+        helm:
+          valueFiles:
+            - '../../gitops/flask-aws-monitor/{{path.basename}}/values.yaml'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: 'flask-{{path.basename}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

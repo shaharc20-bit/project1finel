@@ -1,0 +1,6 @@
+apiVersion: v2
+name: stress-app
+description: CPU/memory load generator (stress-ng) used to test resources and HPA per environment
+type: application
+version: 0.1.0
+appVersion: "latest"
