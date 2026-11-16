@@ -1,0 +1,82 @@
+// Same checks as the root Jenkinsfile, but the steps come from the Jenkins shared library (shared-library/vars).
+// Setup: Manage Jenkins -> System -> Global Pipeline Libraries
+//   Name: my-shared-library | Default version: main | Modern SCM -> Git -> this repo | Library Path: shared-library/
+@Library('my-shared-library') _
+
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+    }
+
+    environment {
+        APP_DIR    = 'app'
+        IMAGE_NAME = 'shaharc20/flask-aws-monitor'
+    }
+
+    stages {
+        stage('Clone Repository') {
+            steps {
+                checkout scm
+                script {
+                    env.TAG = sh(returnStdout: true, script: 'git log -1 --format=%h -- app helm').trim()
+                }
+            }
+        }
+
+        stage('Parallel Checks') {
+            parallel {
+                stage('flake8') {
+                    steps { script { codeQuality.flake8(env.APP_DIR) } }
+                }
+                stage('hadolint') {
+                    steps { script { codeQuality.hadolint("${env.APP_DIR}/Dockerfile") } }
+                }
+                stage('shellcheck') {
+                    steps { script { codeQuality.shellcheck('.') } }
+                }
+                stage('helm lint') {
+                    steps { script { codeQuality.helmLint('helm/flask-app') } }
+                }
+                stage('bandit') {
+                    steps { script { securityScan.bandit(env.APP_DIR) } }
+                }
+                stage('trivy fs') {
+                    steps { script { securityScan.trivyFs() } }
+                }
+                stage('unit tests') {
+                    steps { script { unitTest(env.APP_DIR) } }
+                }
+            }
+        }
+
+        stage('Build Docker Image') {
+            steps { script { imageBuild.build(env.IMAGE_NAME, env.TAG, env.APP_DIR) } }
+        }
+
+        stage('Scan Image') {
+            steps { script { securityScan.trivyImage("${env.IMAGE_NAME}:${env.TAG}") } }
+        }
+
+        stage('Push to Docker Hub') {
+            steps { script { imageBuild.push(env.IMAGE_NAME, env.TAG) } }
+        }
+
+        stage('Update GitOps (dev)') {
+            steps {
+                script {
+                    gitopsUpdate(repo: 'github.com/shaharc20-bit/project1finel.git',
+                                 file: 'gitops/flask-aws-monitor/dev/values.yaml', tag: env.TAG)
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            script { imageBuild.cleanup(env.IMAGE_NAME, env.TAG) }
+            sh 'rm -rf gitops-work'
+        }
+    }
+}
